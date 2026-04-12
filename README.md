@@ -1,3 +1,7 @@
+[![npm version](https://img.shields.io/npm/v/@toptl/telegraf.svg)](https://www.npmjs.com/package/@toptl/telegraf)
+[![npm downloads](https://img.shields.io/npm/dm/@toptl/telegraf.svg)](https://www.npmjs.com/package/@toptl/telegraf)
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 # toptl-telegraf
 
 Telegraf plugin for [TOP.TL](https://top.tl) — auto-post bot stats and check votes.
