@@ -1,0 +1,31 @@
+{
+  "name": "toptl-telegraf",
+  "version": "1.0.0",
+  "description": "Telegraf plugin for TOP.TL — auto-post bot stats & check votes",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["telegram", "telegraf", "bot", "toptl", "top.tl", "stats", "votes"],
+  "author": "TOP.TL",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/top-tl/telegraf.git"
+  },
+  "homepage": "https://top.tl",
+  "dependencies": {
+    "toptl": ">=1.0.0"
+  },
+  "peerDependencies": {
+    "telegraf": ">=4.0.0"
+  },
+  "devDependencies": {
+    "telegraf": "^4.16.0",
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  }
+}
