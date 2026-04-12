@@ -9,7 +9,7 @@
     "build": "tsc",
     "prepublishOnly": "npm run build"
   },
-  "keywords": ["telegram", "telegraf", "bot", "toptl", "top.tl", "stats", "votes"],
+  "keywords": ["telegram", "telegraf", "bot", "@toptl/sdk", "top.tl", "stats", "votes"],
   "author": "TOP.TL",
   "license": "MIT",
   "repository": {
