@@ -1,6 +1,6 @@
 {
   "name": "@toptl/telegraf",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Telegraf plugin for TOP.TL — auto-post bot stats & check votes",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -18,7 +18,7 @@
   },
   "homepage": "https://top.tl",
   "dependencies": {
-    "@toptl/sdk": ">=1.0.0"
+    "@toptl/sdk": "^1.0.1"
   },
   "peerDependencies": {
     "telegraf": ">=4.0.0"

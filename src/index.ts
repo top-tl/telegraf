@@ -1,24 +1,22 @@
-import { Context, Middleware } from "telegraf";
+import type { Context, Middleware } from "telegraf";
+import type { TopTL } from "@toptl/sdk";
 
-const DEFAULT_POST_INTERVAL = 300_000; // ms; overridden by server
+const DEFAULT_POST_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 
 // ---------- Types ----------
 
-interface TopTLClient {
-  postStats(
-    username: string,
-    stats: { users: number; groups: number; channels: number }
-  ): Promise<{ interval?: number } | void>;
-  hasVoted(username: string, userId: number): Promise<boolean>;
-}
-
 interface TopTLOptions {
-  /** Override auto-post interval in ms (server value takes precedence). */
-  postInterval?: number;
+  /** Autopost interval in ms. Default 30 min. */
+  postIntervalMs?: number;
+  /** Skip posting when counts haven't changed. Default true. */
+  onlyOnChange?: boolean;
 }
 
 interface TopTLContext {
+  /** Has the current `ctx.from.id` voted for this listing? */
   hasVoted(): Promise<boolean>;
+  /** Flush current counts to TOP.TL immediately. */
+  postNow(): Promise<void>;
 }
 
 declare module "telegraf" {
@@ -35,9 +33,7 @@ class Stats {
   channels = new Set<number>();
 
   record(ctx: Context): void {
-    if (ctx.from) {
-      this.users.add(ctx.from.id);
-    }
+    if (ctx.from) this.users.add(ctx.from.id);
     const chat = ctx.chat;
     if (chat) {
       if (chat.type === "group" || chat.type === "supergroup") {
@@ -48,11 +44,12 @@ class Stats {
     }
   }
 
-  toJSON() {
+  /** Snapshot in the exact shape @toptl/sdk#postStats expects. */
+  snapshot() {
     return {
-      users: this.users.size,
-      groups: this.groups.size,
-      channels: this.channels.size,
+      memberCount: this.users.size,
+      groupCount: this.groups.size,
+      channelCount: this.channels.size,
     };
   }
 }
@@ -60,45 +57,44 @@ class Stats {
 // ---------- Middleware ----------
 
 /**
- * Telegraf middleware that tracks users/groups/channels and auto-posts stats
- * to TOP.TL.
+ * Telegraf middleware that tracks unique users/groups/channels and
+ * autoposts them to TOP.TL.
  *
  * ```ts
- * import { toptlTelegraf } from "toptl-telegraf";
+ * import { TopTL } from "@toptl/sdk";
+ * import { toptlTelegraf } from "@toptl/telegraf";
+ *
+ * const client = new TopTL("toptl_xxx");
  * bot.use(toptlTelegraf(client, "mybot"));
  * ```
  */
 export function toptlTelegraf(
-  client: TopTLClient,
+  client: TopTL,
   username: string,
   options: TopTLOptions = {}
 ): Middleware<Context> {
   const stats = new Stats();
-  let interval = options.postInterval ?? DEFAULT_POST_INTERVAL;
+  const intervalMs = options.postIntervalMs ?? DEFAULT_POST_INTERVAL_MS;
+  const onlyOnChange = options.onlyOnChange ?? true;
+  let lastPosted: string | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
 
-  const startPosting = () => {
-    if (timer) return;
-    const post = async () => {
-      try {
-        const resp = await client.postStats(username, stats.toJSON());
-        if (resp && typeof resp.interval === "number") {
-          // Server asked for a different cadence — restart timer.
-          const newInterval = resp.interval * 1000;
-          if (newInterval !== interval) {
-            interval = newInterval;
-            if (timer) clearInterval(timer);
-            timer = setInterval(post, interval);
-          }
-        }
-      } catch {
-        // Silently retry on next tick.
-      }
-    };
-    timer = setInterval(post, interval);
+  const flush = async () => {
+    const snap = stats.snapshot();
+    const key = JSON.stringify(snap);
+    if (onlyOnChange && key === lastPosted) return;
+    try {
+      await client.postStats(username, snap);
+      lastPosted = key;
+    } catch {
+      // Transient errors — next tick retries.
+    }
   };
 
-  startPosting();
+  if (!timer) {
+    // Give the bot one interval to collect updates before the first flush.
+    timer = setInterval(flush, intervalMs);
+  }
 
   return async (ctx, next) => {
     stats.record(ctx);
@@ -107,10 +103,17 @@ export function toptlTelegraf(
       async hasVoted(): Promise<boolean> {
         if (!ctx.from) return false;
         try {
-          return await client.hasVoted(username, ctx.from.id);
+          const result = await client.hasVoted(username, ctx.from.id);
+          // The real SDK returns { voted, votedAt } — NOT a bare boolean.
+          // Earlier 1.0.0 of this plugin treated the object as truthy and
+          // let everyone through.
+          return !!(result as unknown as { voted?: boolean } | undefined)?.voted;
         } catch {
           return false;
         }
+      },
+      async postNow(): Promise<void> {
+        await flush();
       },
     };
 
@@ -119,27 +122,31 @@ export function toptlTelegraf(
 }
 
 /**
- * Middleware that blocks updates from users who have not voted on TOP.TL.
+ * Command-level guard that blocks updates from users who haven't voted.
  *
  * ```ts
  * bot.command("premium", voteRequired(client, "mybot"), (ctx) => { ... });
  * ```
  */
 export function voteRequired(
-  client: TopTLClient,
+  client: TopTL,
   username: string,
   message = "Please vote for this bot on TOP.TL to use this command."
 ): Middleware<Context> {
   return async (ctx, next) => {
     if (!ctx.from) return;
+    let voted = false;
     try {
-      const voted = await client.hasVoted(username, ctx.from.id);
-      if (!voted) {
-        if (ctx.reply) await ctx.reply(message);
-        return;
-      }
+      const result = await client.hasVoted(username, ctx.from.id);
+      voted = !!(result as unknown as { voted?: boolean } | undefined)?.voted;
     } catch {
-      // Fail-open on network errors.
+      // Fail-open on network errors — don't brick user's bot over a TOP.TL
+      // outage. Caller can wrap this for fail-closed behaviour.
+      voted = false;
+    }
+    if (!voted) {
+      if (ctx.reply) await ctx.reply(message);
+      return;
     }
     return next();
   };
